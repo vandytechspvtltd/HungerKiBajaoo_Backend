@@ -2,91 +2,491 @@ import { supabase } from "../config/supabase.js";
 import { successResponse, errorResponse } from "../utils/response.js";
 import { validateRequiredFields } from "../utils/validation.js";
 
+// =====================================================
+// GET ADDRESSES
+// =====================================================
+
 export const getAddresses = async (req, res, next) => {
   try {
+
     const userId = req.user.id;
-    const { data, error } = await supabase.from("addresses").select("*").eq("user_id", userId).order("created_at", { ascending: false });
+
+    const {
+      data,
+      error
+    } = await supabase
+      .from("addresses")
+      .select("*")
+      .eq("user_id", userId)
+      .order("is_default", {
+        ascending: false
+      })
+      .order("created_at", {
+        ascending: false
+      });
+
     if (error) {
-      return errorResponse(res, error.message, 400);
+
+      return errorResponse(
+        res,
+        error.message,
+        400
+      );
     }
-    return successResponse(res, data);
+
+    return successResponse(
+      res,
+      data
+    );
+
   } catch (err) {
+
     next(err);
   }
 };
+
+
+// =====================================================
+// CREATE ADDRESS
+// =====================================================
+// =====================================================
+// CREATE ADDRESS
+// =====================================================
 
 export const createAddress = async (req, res, next) => {
+
   try {
+
     const userId = req.user.id;
-    const { title, address, latitude, longitude, is_default } = req.body;
-    if (!validateRequiredFields(["title", "address", "latitude", "longitude"], req.body)) {
-      return errorResponse(res, "Invalid request data", 400);
+
+    const {
+      label,
+      address_line1,
+      address_line2,
+      city,
+      state,
+      pincode,
+      latitude,
+      longitude,
+      is_default
+    } = req.body;
+
+
+    // -----------------------------------------------
+    // REQUIRED FIELDS
+    // -----------------------------------------------
+
+    if (
+      !validateRequiredFields(
+        [
+          "label",
+          "address_line1",
+          "city",
+          "state",
+          "pincode"
+        ],
+        req.body
+      )
+    ) {
+
+      return errorResponse(
+        res,
+        "Invalid request data",
+        400
+      );
     }
+
+
+    // -----------------------------------------------
+    // BUILD FULL ADDRESS
+    // -----------------------------------------------
+
+    const fullAddress = [
+      address_line1,
+      address_line2,
+      city,
+      state,
+      pincode
+    ]
+      .filter(
+        value =>
+          value !== null &&
+          value !== undefined &&
+          String(value).trim() !== ""
+      )
+      .map(value => String(value).trim())
+      .join(", ");
+
+
+    // -----------------------------------------------
+    // DEFAULT ADDRESS
+    // -----------------------------------------------
 
     if (is_default) {
-      await supabase.from("addresses").update({ is_default: false }).eq("user_id", userId);
+
+      const {
+        error: defaultError
+      } = await supabase
+        .from("addresses")
+        .update({
+          is_default: false
+        })
+        .eq("user_id", userId);
+
+      if (defaultError) {
+
+        return errorResponse(
+          res,
+          defaultError.message,
+          400
+        );
+      }
     }
 
-    const { data, error } = await supabase.from("addresses").insert([{ user_id: userId, title, address, latitude, longitude, is_default: !!is_default }]).single();
+
+    // -----------------------------------------------
+    // CREATE
+    // -----------------------------------------------
+
+    const {
+      data,
+      error
+    } = await supabase
+      .from("addresses")
+      .insert([
+        {
+          user_id: userId,
+
+          // Existing NOT NULL column
+          address: fullAddress,
+
+          // Structured address fields
+          label: label,
+          address_line1: address_line1,
+          address_line2:
+            address_line2 || null,
+
+          city: city,
+          state: state,
+          pincode: pincode,
+
+          latitude:
+            latitude ?? null,
+
+          longitude:
+            longitude ?? null,
+
+          is_default:
+            !!is_default
+        }
+      ])
+      .select("*")
+      .single();
+
+
     if (error) {
-      return errorResponse(res, error.message, 400);
+
+      console.error(
+        "createAddress Supabase error:",
+        error
+      );
+
+      return errorResponse(
+        res,
+        error.message,
+        400
+      );
     }
-    return successResponse(res, data, 201);
+
+
+    return successResponse(
+      res,
+      data,
+      201
+    );
+
   } catch (err) {
+
     next(err);
   }
 };
 
-export const updateAddress = async (req, res, next) => {
+// =====================================================
+// UPDATE ADDRESS
+// =====================================================
+
+export const updateAddress = async (
+  req,
+  res,
+  next
+) => {
+
   try {
-    const userId = req.user.id;
-    const id = Number(req.params.id);
-    const { title, address, latitude, longitude, is_default } = req.body;
+
+    const userId =
+      req.user.id;
+
+    const id =
+      Number(req.params.id);
+
+
+    const {
+      label,
+      address_line1,
+      address_line2,
+      city,
+      state,
+      pincode,
+      latitude,
+      longitude,
+      is_default
+    } = req.body;
+
+
+    // -----------------------------------------------
+    // CHECK EXISTING ADDRESS
+    // -----------------------------------------------
+
+    const {
+      data: existing,
+      error: existingError
+    } = await supabase
+      .from("addresses")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+
+    if (
+      existingError ||
+      !existing ||
+      existing.user_id !== userId
+    ) {
+
+      return errorResponse(
+        res,
+        "Address not found",
+        404
+      );
+    }
+
+
+    // -----------------------------------------------
+    // BUILD UPDATE
+    // -----------------------------------------------
+
     const updates = {};
-    if (title !== undefined) updates.title = title;
-    if (address !== undefined) updates.address = address;
-    if (latitude !== undefined) updates.latitude = latitude;
-    if (longitude !== undefined) updates.longitude = longitude;
-    if (is_default !== undefined) updates.is_default = !!is_default;
 
-    if (Object.keys(updates).length === 0) {
-      return errorResponse(res, "At least one field is required to update", 400);
+
+    if (label !== undefined) {
+      updates.label =
+        label;
     }
 
-    const { data: existing, error: existingError } = await supabase.from("addresses").select("*").eq("id", id).single();
-    if (existingError || !existing || existing.user_id !== userId) {
-      return errorResponse(res, "Address not found", 404);
+    if (
+      address_line1 !== undefined
+    ) {
+      updates.address_line1 =
+        address_line1;
     }
 
-    if (updates.is_default) {
-      await supabase.from("addresses").update({ is_default: false }).eq("user_id", userId);
+    if (
+      address_line2 !== undefined
+    ) {
+      updates.address_line2 =
+        address_line2;
     }
 
-    const { data, error } = await supabase.from("addresses").update(updates).eq("id", id).single();
+    if (city !== undefined) {
+      updates.city =
+        city;
+    }
+
+    if (state !== undefined) {
+      updates.state =
+        state;
+    }
+
+    if (pincode !== undefined) {
+      updates.pincode =
+        pincode;
+    }
+
+    if (latitude !== undefined) {
+      updates.latitude =
+        latitude;
+    }
+
+    if (longitude !== undefined) {
+      updates.longitude =
+        longitude;
+    }
+
+    if (is_default !== undefined) {
+      updates.is_default =
+        !!is_default;
+    }
+
+
+    // -----------------------------------------------
+    // NOTHING TO UPDATE
+    // -----------------------------------------------
+
+    if (
+      Object.keys(updates).length === 0
+    ) {
+
+      return errorResponse(
+        res,
+        "At least one field is required to update",
+        400
+      );
+    }
+
+
+    // -----------------------------------------------
+    // DEFAULT ADDRESS
+    // -----------------------------------------------
+
+    if (updates.is_default === true) {
+
+      const {
+        error: defaultError
+      } = await supabase
+        .from("addresses")
+        .update({
+          is_default: false
+        })
+        .eq("user_id", userId);
+
+      if (defaultError) {
+
+        return errorResponse(
+          res,
+          defaultError.message,
+          400
+        );
+      }
+    }
+
+
+    // -----------------------------------------------
+    // UPDATE
+    // -----------------------------------------------
+
+    const {
+      data,
+      error
+    } = await supabase
+      .from("addresses")
+      .update(updates)
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("*")
+      .single();
+
+
     if (error) {
-      return errorResponse(res, error.message, 400);
+
+      return errorResponse(
+        res,
+        error.message,
+        400
+      );
     }
-    return successResponse(res, data);
+
+
+    return successResponse(
+      res,
+      data
+    );
+
   } catch (err) {
+
     next(err);
   }
 };
 
-export const deleteAddress = async (req, res, next) => {
+
+// =====================================================
+// DELETE ADDRESS
+// =====================================================
+
+export const deleteAddress = async (
+  req,
+  res,
+  next
+) => {
+
   try {
-    const userId = req.user.id;
-    const id = Number(req.params.id);
-    const { data: existing, error: existingError } = await supabase.from("addresses").select("*").eq("id", id).single();
-    if (existingError || !existing || existing.user_id !== userId) {
-      return errorResponse(res, "Address not found", 404);
+
+    const userId =
+      req.user.id;
+
+    const id =
+      Number(req.params.id);
+
+
+    // -----------------------------------------------
+    // CHECK EXISTING
+    // -----------------------------------------------
+
+    const {
+      data: existing,
+      error: existingError
+    } = await supabase
+      .from("addresses")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+
+    if (
+      existingError ||
+      !existing ||
+      existing.user_id !== userId
+    ) {
+
+      return errorResponse(
+        res,
+        "Address not found",
+        404
+      );
     }
 
-    const { error } = await supabase.from("addresses").delete().eq("id", id);
+
+    // -----------------------------------------------
+    // DELETE
+    // -----------------------------------------------
+
+    const {
+      error
+    } = await supabase
+      .from("addresses")
+      .delete()
+      .eq("id", id);
+
+
     if (error) {
-      return errorResponse(res, error.message, 400);
+
+      return errorResponse(
+        res,
+        error.message,
+        400
+      );
     }
-    return successResponse(res, { message: "Address deleted" });
+
+
+    return successResponse(
+      res,
+      {
+        message:
+          "Address deleted"
+      }
+    );
+
   } catch (err) {
+
     next(err);
   }
 };
