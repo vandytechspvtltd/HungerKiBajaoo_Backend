@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { supabase } from "../config/supabase.js";
 
-const DEV_ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
+const DEV_ACCESS_TOKEN_TTL_MS = 1 * 60 * 1000;
 const DEV_REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const devSessionStore = new Map();
 
@@ -105,9 +105,7 @@ export const isDevSessionRevoked = (token) => {
 export const getDevUserIdFromAccessToken = (token) => {
   const session = getDevSessionFromToken(token);
   if (!session || session.accessToken !== token || isDevSessionExpired(session, "access")) {
-    if (session) {
-      revokeDevSession(token);
-    }
+   
     return null;
   }
 
