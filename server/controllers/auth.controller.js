@@ -9,7 +9,7 @@ import {
   getDevUserIdFromRefreshToken,
 } from "../middleware/auth.js";
 
-const DEV_OTP = "123456";
+const DEV_OTP = "1234";
 const DEV_OTP_TTL_MS = 5 * 60 * 1000;
 const devOtpStore = new Map();
 
