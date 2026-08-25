@@ -283,39 +283,20 @@ export const sendOtp = async (req, res, next) => {
       );
     }
 
-    const message =
-      await twilioClient.messages.create({
-        body: "sms_2fa",
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: phone,
-      });
+    // Development OTP
+    const otp = "123456";
 
-    const otpMatch =
-      message.body?.match(/\b\d{6}\b/);
-
-    if (!otpMatch) {
-      return errorResponse(
-        res,
-        "Unable to read OTP",
-        500
-      );
-    }
-
-    storeOtp(
-      phone,
-      otpMatch[0]
-    );
+    storeOtp(phone, otp);
 
     return res.json({
       success: true,
-      message: "OTP sent successfully",
+      message: "Test OTP sent successfully"
     });
 
   } catch (err) {
     next(err);
   }
 };
-
 export const verifyOtp = async (req, res, next) => {
   try {
     const {
