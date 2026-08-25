@@ -268,16 +268,12 @@ export const register = async (req, res, next) => {
     next(err);
   }
 };
-
 export const sendOtp = async (req, res, next) => {
   try {
     const { phone } = req.body;
 
     if (
-      !validateRequiredFields(
-        ["phone"],
-        req.body
-      ) ||
+      !validateRequiredFields(["phone"], req.body) ||
       !validatePhone(phone)
     ) {
       return errorResponse(
@@ -287,11 +283,28 @@ export const sendOtp = async (req, res, next) => {
       );
     }
 
-    await twilioClient.messages.create({
-      body: "sms_2fa",
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: phone,
-    });
+    const message =
+      await twilioClient.messages.create({
+        body: "sms_2fa",
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: phone,
+      });
+
+    const otpMatch =
+      message.body?.match(/\b\d{6}\b/);
+
+    if (!otpMatch) {
+      return errorResponse(
+        res,
+        "Unable to read OTP",
+        500
+      );
+    }
+
+    storeOtp(
+      phone,
+      otpMatch[0]
+    );
 
     return res.json({
       success: true,
