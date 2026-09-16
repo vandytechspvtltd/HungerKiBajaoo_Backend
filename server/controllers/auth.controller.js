@@ -182,53 +182,325 @@ export const sendOtp = async (req, res, next) => {
 
 export const verifyOtp = async (req, res, next) => {
   try {
+    console.log("[AUTH] VERIFY OTP START");
+
     if (process.env.NODE_ENV === "production") {
-      return errorResponse(res, "Phone OTP is only available in development mode", 404);
+      return errorResponse(
+        res,
+        "Phone OTP is only available in development mode",
+        404
+      );
     }
 
-    const { phone, token } = req.body;
-    if (!validateRequiredFields(["phone", "token"], req.body) || !validatePhone(phone)) {
-      return errorResponse(res, "Invalid request data", 400);
+    const { phone, token } = req.body || {};
+
+    // STEP 1: Validate request
+    if (
+      !validateRequiredFields(
+        ["phone", "token"],
+        req.body
+      ) ||
+      !validatePhone(phone)
+    ) {
+      console.error(
+        "[AUTH] STEP 1 FAILED: Invalid request data"
+      );
+
+      return errorResponse(
+        res,
+        "Invalid request data",
+        400
+      );
     }
 
+    console.log("[AUTH] STEP 1 SUCCESS");
+
+    // STEP 2: Validate OTP
     if (!validateDevOtp(phone, token)) {
-      return errorResponse(res, "Invalid or expired OTP", 401);
+      console.error(
+        "[AUTH] STEP 2 FAILED: Invalid or expired OTP"
+      );
+
+      return errorResponse(
+        res,
+        "Invalid or expired OTP",
+        401
+      );
     }
 
-    let user = await findAuthUserByPhone(phone);
+    console.log("[AUTH] STEP 2 SUCCESS: OTP valid");
+
+    // STEP 3: Find existing user
+    let user = null;
+
+    try {
+      console.log(
+        "[AUTH] STEP 3: Finding Supabase user"
+      );
+
+      user = await findAuthUserByPhone(phone);
+
+      console.log(
+        "[AUTH] STEP 3 SUCCESS:",
+        user?.id || "User not found"
+      );
+    } catch (error) {
+      console.error(
+        "[AUTH] STEP 3 FAILED: Supabase listUsers"
+      );
+
+      console.error(
+        "Message:",
+        error?.message
+      );
+
+      console.error(
+        "Code:",
+        error?.code
+      );
+
+      console.error(
+        "Details:",
+        error?.details
+      );
+
+      console.error(
+        "Hint:",
+        error?.hint
+      );
+
+      console.error(
+        "Stack:",
+        error?.stack
+      );
+
+      return errorResponse(
+        res,
+        `Authentication service error: ${
+          error?.message || "Unable to fetch users"
+        }`,
+        500
+      );
+    }
+
+    // STEP 4: Create user if not found
     let created = false;
-    if (!user) {
-      user = await createAuthUserByPhone(phone);
-      created = true;
-    }
 
     if (!user) {
-      return errorResponse(res, "Unable to locate or create user", 500);
+      try {
+        console.log(
+          "[AUTH] STEP 4: Creating Supabase user"
+        );
+
+        user = await createAuthUserByPhone(phone);
+        created = true;
+
+        console.log(
+          "[AUTH] STEP 4 SUCCESS:",
+          user?.id
+        );
+      } catch (error) {
+        console.error(
+          "[AUTH] STEP 4 FAILED: Supabase createUser"
+        );
+
+        console.error(
+          "Message:",
+          error?.message
+        );
+
+        console.error(
+          "Code:",
+          error?.code
+        );
+
+        console.error(
+          "Details:",
+          error?.details
+        );
+
+        console.error(
+          "Hint:",
+          error?.hint
+        );
+
+        console.error(
+          "Stack:",
+          error?.stack
+        );
+
+        return errorResponse(
+          res,
+          `Unable to create user: ${
+            error?.message || "Unknown error"
+          }`,
+          500
+        );
+      }
     }
 
-    await ensureProfileForUser(user, phone);
+    if (!user?.id) {
+      return errorResponse(
+        res,
+        "Unable to locate or create user",
+        500
+      );
+    }
+
+    // STEP 5: Ensure profile
+    try {
+      console.log(
+        "[AUTH] STEP 5: Ensuring profile"
+      );
+
+      await ensureProfileForUser(
+        user,
+        phone
+      );
+
+      console.log(
+        "[AUTH] STEP 5 SUCCESS: Profile ready"
+      );
+    } catch (error) {
+      console.error(
+        "[AUTH] STEP 5 FAILED: Profile operation"
+      );
+
+      console.error(
+        "Message:",
+        error?.message
+      );
+
+      console.error(
+        "Code:",
+        error?.code
+      );
+
+      console.error(
+        "Details:",
+        error?.details
+      );
+
+      console.error(
+        "Hint:",
+        error?.hint
+      );
+
+      console.error(
+        "Stack:",
+        error?.stack
+      );
+
+      return errorResponse(
+        res,
+        `Profile operation failed: ${
+          error?.message || "Unknown error"
+        }`,
+        500
+      );
+    }
+
+    // STEP 6: Consume OTP
     devOtpStore.delete(phone);
 
-    const devSession = createDevSessionForUser(user.id);
-    const access_token = devSession.accessToken;
-    const refresh_token = devSession.refreshToken;
+    // STEP 7: Create development session
+    try {
+      console.log(
+        "[AUTH] STEP 7: Creating development session"
+      );
 
-    return res.json(
-      buildAuthSessionPayload({
-        access_token,
-        refresh_token,
-        user,
-        session: {
-          token: access_token,
-          provider: "development",
-          created,
-        },
-      })
-    );
+      const devSession =
+        createDevSessionForUser(user.id);
+
+      if (
+        !devSession?.accessToken ||
+        !devSession?.refreshToken
+      ) {
+        throw new Error(
+          "Invalid development session generated"
+        );
+      }
+
+      const access_token =
+        devSession.accessToken;
+
+      const refresh_token =
+        devSession.refreshToken;
+
+      // STEP 8: Success response
+      console.log(
+        "[AUTH] VERIFY OTP SUCCESS"
+      );
+
+      return res.json(
+        buildAuthSessionPayload({
+          access_token,
+          refresh_token,
+          user,
+          session: {
+            token: access_token,
+            provider: "development",
+            created,
+          },
+        })
+      );
+    } catch (error) {
+      console.error(
+        "[AUTH] STEP 7 FAILED: Session creation"
+      );
+
+      console.error(
+        "Message:",
+        error?.message
+      );
+
+      console.error(
+        "Stack:",
+        error?.stack
+      );
+
+      return errorResponse(
+        res,
+        `Unable to create authentication session: ${
+          error?.message || "Unknown error"
+        }`,
+        500
+      );
+    }
   } catch (err) {
+    console.error(
+      "[AUTH] VERIFY OTP UNHANDLED ERROR"
+    );
+
+    console.error(
+      "Message:",
+      err?.message
+    );
+
+    console.error(
+      "Code:",
+      err?.code
+    );
+
+    console.error(
+      "Details:",
+      err?.details
+    );
+
+    console.error(
+      "Hint:",
+      err?.hint
+    );
+
+    console.error(
+      "Stack:",
+      err?.stack
+    );
+
     next(err);
   }
 };
+
 
 export const login = async (req, res, next) => {
   try {
