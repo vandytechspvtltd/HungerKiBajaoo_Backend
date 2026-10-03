@@ -1,6 +1,10 @@
 import crypto from "crypto";
 import { supabase } from "../config/supabase.js";
-import { successResponse, errorResponse } from "../utils/response.js";
+import {
+  successResponse,
+  errorResponse,
+} from "../utils/response.js";
+
 import {
   validateEmail,
   validatePhone,
@@ -29,7 +33,7 @@ const MSG91_OTP_TEMPLATE_ID =
    ============================================================ */
 
 /**
- * Convert Indian number to MSG91 format.
+ * Convert Indian phone number to MSG91 format.
  *
  * 9876543210
  * 919876543210
@@ -139,15 +143,17 @@ const sendMsg91Otp = async (phone) => {
       method: "POST",
 
       headers: {
-        "Content-Type":
-          "application/json",
+        "Content-Type": "application/json",
+        authkey: MSG91_AUTH_KEY,
+        Accept: "application/json",
       },
 
       body: JSON.stringify({}),
     }
   );
 
-  const data = await response.json();
+  const data =
+    await response.json().catch(() => ({}));
 
   console.log(
     "MSG91 Send OTP Response:",
@@ -160,6 +166,7 @@ const sendMsg91Otp = async (phone) => {
   ) {
     throw new Error(
       data?.message ||
+        data?.error ||
         "MSG91 failed to send OTP"
     );
   }
@@ -212,6 +219,11 @@ const verifyMsg91Otp = async (
     mobile
   );
 
+  url.searchParams.set(
+    "authkey",
+    MSG91_AUTH_KEY
+  );
+
   const response = await fetch(
     url.toString(),
     {
@@ -219,11 +231,13 @@ const verifyMsg91Otp = async (
 
       headers: {
         authkey: MSG91_AUTH_KEY,
+        Accept: "application/json",
       },
     }
   );
 
-  const data = await response.json();
+  const data =
+    await response.json().catch(() => ({}));
 
   console.log(
     "MSG91 Verify OTP Response:",
@@ -246,6 +260,80 @@ const verifyMsg91Otp = async (
 
 
 /* ============================================================
+   MSG91 RESEND OTP
+   ============================================================ */
+
+const resendMsg91Otp = async (phone) => {
+  if (!MSG91_AUTH_KEY) {
+    throw new Error(
+      "MSG91_AUTH_KEY is not configured"
+    );
+  }
+
+  const mobile =
+    normalizePhoneForMsg91(phone);
+
+  if (!mobile) {
+    throw new Error(
+      "Invalid Indian phone number"
+    );
+  }
+
+  const url = new URL(
+    "https://control.msg91.com/api/v5/otp/retry"
+  );
+
+  url.searchParams.set(
+    "mobile",
+    mobile
+  );
+
+  url.searchParams.set(
+    "authkey",
+    MSG91_AUTH_KEY
+  );
+
+  url.searchParams.set(
+    "retrytype",
+    "text"
+  );
+
+  const response = await fetch(
+    url.toString(),
+    {
+      method: "GET",
+
+      headers: {
+        authkey: MSG91_AUTH_KEY,
+        Accept: "application/json",
+      },
+    }
+  );
+
+  const data =
+    await response.json().catch(() => ({}));
+
+  console.log(
+    "MSG91 Resend OTP Response:",
+    data
+  );
+
+  if (
+    !response.ok ||
+    data?.type !== "success"
+  ) {
+    throw new Error(
+      data?.message ||
+        data?.error ||
+        "MSG91 failed to resend OTP"
+    );
+  }
+
+  return data;
+};
+
+
+/* ============================================================
    FIND AUTH USER BY PHONE
    ============================================================ */
 
@@ -261,12 +349,10 @@ const findAuthUserByPhone = async (
       data,
       error,
     } =
-      await supabase.auth.admin.listUsers(
-        {
-          page,
-          perPage,
-        }
-      );
+      await supabase.auth.admin.listUsers({
+        page,
+        perPage,
+      });
 
     if (error) {
       throw error;
@@ -400,17 +486,15 @@ const createAuthUserByPhone = async (
     data,
     error,
   } =
-    await supabase.auth.admin.createUser(
-      {
-        phone,
-        password,
-        phone_confirm: true,
+    await supabase.auth.admin.createUser({
+      phone,
+      password,
+      phone_confirm: true,
 
-        user_metadata: {
-          phone,
-        },
-      }
-    );
+      user_metadata: {
+        phone,
+      },
+    });
 
   if (error) {
     throw error;
@@ -566,13 +650,13 @@ export const sendOtp = async (
     if (!normalizedPhone) {
       return errorResponse(
         res,
-        "Invalid phone number",
+        "Invalid Indian phone number",
         400
       );
     }
 
-    /**
-     * MSG91 generates OTP
+    /*
+     * MSG91 generates the OTP
      * and sends it using the
      * approved DLT mapped template.
      */
@@ -595,6 +679,71 @@ export const sendOtp = async (
       res,
       err.message ||
         "Failed to send OTP",
+      500
+    );
+  }
+};
+
+
+/* ============================================================
+   RESEND OTP - MSG91
+   ============================================================ */
+
+export const resendOtp = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const { phone } =
+      req.body;
+
+    if (
+      !validateRequiredFields(
+        ["phone"],
+        req.body
+      ) ||
+      !validatePhone(phone)
+    ) {
+      return errorResponse(
+        res,
+        "Invalid phone number",
+        400
+      );
+    }
+
+    const normalizedPhone =
+      normalizePhoneForSupabase(
+        phone
+      );
+
+    if (!normalizedPhone) {
+      return errorResponse(
+        res,
+        "Invalid Indian phone number",
+        400
+      );
+    }
+
+    await resendMsg91Otp(
+      normalizedPhone
+    );
+
+    return res.json({
+      success: true,
+      message:
+        "OTP resent successfully",
+    });
+  } catch (err) {
+    console.error(
+      "Resend OTP error:",
+      err
+    );
+
+    return errorResponse(
+      res,
+      err.message ||
+        "Failed to resend OTP",
       500
     );
   }
@@ -641,12 +790,12 @@ export const verifyOtp = async (
     if (!normalizedPhone) {
       return errorResponse(
         res,
-        "Invalid phone number",
+        "Invalid Indian phone number",
         400
       );
     }
 
-    /**
+    /*
      * Verify OTP using MSG91.
      */
     const isValidOtp =
@@ -674,6 +823,10 @@ export const verifyOtp = async (
 
     let created = false;
 
+    /* ========================================================
+       CREATE USER IF NOT EXISTS
+       ======================================================== */
+
     if (!user) {
       user =
         await createAuthUserByPhone(
@@ -691,13 +844,17 @@ export const verifyOtp = async (
       );
     }
 
+    /* ========================================================
+       ENSURE PROFILE
+       ======================================================== */
+
     await ensureProfileForUser(
       user,
       normalizedPhone
     );
 
     /* ========================================================
-       EXISTING SESSION LOGIC
+       CREATE APPLICATION SESSION
        ======================================================== */
 
     const devSession =
@@ -711,6 +868,10 @@ export const verifyOtp = async (
     const refresh_token =
       devSession.refreshToken;
 
+    /* ========================================================
+       RESPONSE
+       ======================================================== */
+
     return res.json(
       buildAuthSessionPayload({
         access_token,
@@ -719,8 +880,7 @@ export const verifyOtp = async (
 
         session: {
           token: access_token,
-          provider:
-            "development",
+          provider: "msg91",
           created,
         },
       })
@@ -836,6 +996,10 @@ export const refreshToken = async (
       );
     }
 
+    /* ========================================================
+       APPLICATION SESSION
+       ======================================================== */
+
     if (
       String(
         refreshTokenValue
@@ -912,6 +1076,10 @@ export const refreshToken = async (
       );
     }
 
+    /* ========================================================
+       REAL SUPABASE REFRESH TOKEN
+       ======================================================== */
+
     const {
       data,
       error,
@@ -938,10 +1106,12 @@ export const refreshToken = async (
     return res.json(
       buildAuthSessionPayload({
         access_token:
-          data.session.access_token,
+          data.session
+            .access_token,
 
         refresh_token:
-          data.session.refresh_token,
+          data.session
+            .refresh_token,
 
         user:
           data.user,
@@ -957,7 +1127,7 @@ export const refreshToken = async (
 
 
 /* ============================================================
-   ME
+   GET CURRENT USER
    ============================================================ */
 
 export const me = async (
@@ -1029,7 +1199,7 @@ export const logout = async (
     }
 
     /* ========================================================
-       DEVELOPMENT SESSION
+       APPLICATION SESSION
        ======================================================== */
 
     if (
@@ -1104,8 +1274,7 @@ export const deleteAccount = async (
 
     const {
       data: userData,
-      error:
-        userLookupError,
+      error: userLookupError,
     } =
       await supabase
         .auth.admin
@@ -1123,6 +1292,10 @@ export const deleteAccount = async (
         404
       );
     }
+
+    /* ========================================================
+       CLEANUP USER DATA
+       ======================================================== */
 
     const cleanupDeletes = [
       supabase
@@ -1176,9 +1349,12 @@ export const deleteAccount = async (
       }
     }
 
+    /* ========================================================
+       DELETE AUTH USER
+       ======================================================== */
+
     const {
-      error:
-        deleteUserError,
+      error: deleteUserError,
     } =
       await supabase.auth.admin.deleteUser(
         userId

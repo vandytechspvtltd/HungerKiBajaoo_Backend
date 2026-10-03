@@ -21,7 +21,7 @@ export const getCategoryFoods = async (req, res, next) => {
       return errorResponse(res, "Category not found", 404);
     }
 
-    const { data: foods, error: foodsError } = await supabase.from("foods").select("*").eq("category", category.name).order("created_at", { ascending: true });
+    const { data: foods, error: foodsError } = await supabase.from("foods").select("*").eq("category_id", id).order("created_at", { ascending: true });
     if (foodsError) {
       return errorResponse(res, foodsError.message, 400);
     }

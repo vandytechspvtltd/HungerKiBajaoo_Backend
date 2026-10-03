@@ -17,9 +17,6 @@ export const getOffers = async (
 
   try {
 
-    const now =
-      new Date().toISOString();
-
     const {
       data,
       error
@@ -29,14 +26,6 @@ export const getOffers = async (
       .eq(
         "is_active",
         true
-      )
-      .lte(
-        "valid_from",
-        now
-      )
-      .gte(
-        "valid_until",
-        now
       )
       .order(
         "created_at",

@@ -491,20 +491,25 @@ components:
           type: string
         description:
           type: string
+        code:
+          type: string
+        discount_percentage:
+          type: number
+          nullable: true
+        flat_discount:
+          type: number
+          nullable: true
+        max_discount:
+          type: number
+          nullable: true
+        min_order_value:
+          type: number
+          nullable: true
         image_url:
           type: string
         is_active:
           type: boolean
-        valid_from:
-          type: string
-          format: date-time
-        valid_until:
-          type: string
-          format: date-time
         created_at:
-          type: string
-          format: date-time
-        updated_at:
           type: string
           format: date-time
     DeliveryPartner:
@@ -1470,6 +1475,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/orders/{id}/cancel:
     post:
       summary: Cancel an order
       tags:
@@ -1509,6 +1515,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
+  /api/coupons/validate:
     post:
       summary: Validate a coupon
       tags:
